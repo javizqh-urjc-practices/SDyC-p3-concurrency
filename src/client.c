@@ -9,14 +9,6 @@
 #include "proxy.h"
 
 #define N_ARGS 8
-#define MAX_IP_SIZE 16
-#define MODE_READER_STR "reader"
-#define MODE_WRITER_STR "writer"
-
-enum modes {
-    WRITER = 0,
-    READER
-};
 
 typedef struct args {
     char ip [MAX_IP_SIZE];
@@ -44,7 +36,7 @@ int main(int argc, char *const *argv) {
     
     execution_mode = arguments->mode;
 
-    // load_config_client(arguments->ip, arguments->port);
+    load_config_client(arguments->ip, arguments->port);
 
     // Launch n threads
     for (int i = 0; i < arguments->threads; i++) {
@@ -132,17 +124,20 @@ Args check_args(int argc, char *const *argv) {
 
 void * thread_function(void *arg) {
     int id = *(int *) arg;
+    struct response * resp;
+
     switch (execution_mode) {
     case READER:
-        // reader();
-        // response(); // Returns X and Y values
-        printf("[Cliente #%d] Lector, contador=X, tiempo=Y ns.\n", id);
+        resp = reader(id); // Returns X and Y values
+        printf("[Cliente #%d] Lector, contador=%d, tiempo=%ld ns.\n", id,
+               resp->counter, resp->latency_time);
         break;
     case WRITER:
-        // writer();
-        // response(); // Returns X and Y values
-        printf("[Cliente #%d] Escritor, contador=X, tiempo=Y ns.\n", id);
+        resp = writer(id); // Returns X and Y values
+        printf("[Cliente #%d] Escritor, contador=%d, tiempo=%ld ns.\n", id,
+               resp->counter, resp->latency_time);
         break;
     }
+    free(resp);
     pthread_exit(NULL);
 }

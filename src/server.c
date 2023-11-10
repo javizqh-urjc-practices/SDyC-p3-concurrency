@@ -4,7 +4,6 @@
 #include <string.h>
 #include <getopt.h>
 #include <err.h>
-#include <semaphore.h>
 #include <pthread.h>
 
 #include "proxy.h"
@@ -15,13 +14,12 @@
 
 typedef struct args {
     int port;
-    char priority [MAX_PRIORITY_SIZE];
+    enum modes priority;
 } * Args;
 
 Args check_args(int argc, char *const *argv);
 
 // Thread specific functions
-sem_t sem;
 void * thread_function(void *arg);
 
 void usage() {
@@ -32,23 +30,12 @@ void usage() {
 int main(int argc, char *const *argv) {
 
     Args arguments = check_args(argc, argv);
-
-    if (sem_init(&sem, 0, MAX_THREADS) == -1) {
-        free(arguments);
-        err(EXIT_FAILURE, "failed to create semaphore");
-    }
         
-    // load_config_server(arguments->port, arguments->priority, max_threads);
+    load_config_server(arguments->port, arguments->priority, MAX_THREADS);
 
     // Launch n threads with a maximum amount of 400
     while (1) {
-        // new_thread();
-
-        // To proxy
-        // pthread_t thread;
-        // sem_wait(&sem);
-        // pthread_create(&thread, NULL, thread_function, NULL);
-        // pthread_detach(thread);
+        proccess_client();
     }
 
     free(arguments);
@@ -85,7 +72,14 @@ Args check_args(int argc, char *const *argv) {
         switch (c) {
         case 0:
             if (strcmp(long_options[opt_index].name, "priority") == 0) {
-                strcpy(arguments->priority ,optarg);
+                if (strcmp(optarg ,MODE_READER_STR) == 0) {
+                    arguments->priority = READER;
+                } else if (strcmp(optarg ,MODE_WRITER_STR) == 0) {
+                    arguments->priority = WRITER;
+                } else {
+                    free(arguments);
+                    usage();
+                }
             } else if (strcmp(long_options[opt_index].name, "port") == 0) {
                 arguments->port = atoi(optarg);
                 if (arguments->port <= 0) {
@@ -105,12 +99,3 @@ Args check_args(int argc, char *const *argv) {
     }
     return arguments;
 }
-
-void * thread_function(void *arg) {
-    printf("Thread function\n");
-    sleep(3);
-
-    sem_post(&sem);
-    pthread_exit(NULL);
-}
-
