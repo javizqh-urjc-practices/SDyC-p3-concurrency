@@ -129,11 +129,13 @@ void * thread_function(void *arg) {
     switch (execution_mode) {
     case READER:
         resp = reader(id); // Returns X and Y values
+        if (resp == NULL) pthread_exit(NULL);
         printf("[Cliente #%d] Lector, contador=%d, tiempo=%ld ns.\n", id,
                resp->counter, resp->latency_time);
         break;
     case WRITER:
         resp = writer(id); // Returns X and Y values
+        if (resp == NULL) pthread_exit(NULL);
         printf("[Cliente #%d] Escritor, contador=%d, tiempo=%ld ns.\n", id,
                resp->counter, resp->latency_time);
         break;

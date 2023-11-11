@@ -27,6 +27,12 @@ int server_sockfd;
 struct sockaddr *server_addr;
 socklen_t server_len;
 
+struct thread_info {
+    pthread_t thread;
+    int sockfd;
+};
+
+
 sem_t sem;
 // -----------------------------------------------------------------------------
 
@@ -114,7 +120,7 @@ struct response * client_connexion(int id, int action) {
     req.id = id;
 
     if (inet_pton(AF_INET, (char *) client_ip, &addr) < 0) {
-        return 0;
+        return NULL;
     }
 
     setbuf(stdout, NULL);
@@ -129,12 +135,12 @@ struct response * client_connexion(int id, int action) {
 
     if (sockfd < 0) {
         fprintf(stderr, "Socket failed\n");
-        return 0;
+        return NULL;
     }
 
     if (connect(sockfd, (const struct sockaddr *) &servaddr, len) < 0){
         ERROR("Unable to connect");
-        return 0;
+        return NULL;
     }
 
     if (send(sockfd, &req, sizeof(req), MSG_WAITALL) < 0) ERROR("Fail to send");
@@ -151,21 +157,15 @@ struct response * writer(int id) {
 }
 // ---------------------------- Function for server ----------------------------
 void * proccess_client_thread(void * arg) {
-    int sockfd;
+    struct thread_info * thread_info = (struct thread_info *) arg;
     int counter = 0;
     struct request req;
     struct response resp;
 
-    // 1. Accept connection
-    if ((sockfd = accept(server_sockfd, server_addr, &server_len)) < 0) {
-        ERROR("failed to accept socket");
-        sem_post(&sem);
-        pthread_exit(NULL);
-    }
-
     // Listen for response messages
-    if (recv(sockfd, &req, sizeof(req), MSG_WAITALL) < 0) {
+    if (recv(thread_info->sockfd, &req, sizeof(req), MSG_WAITALL) < 0) {
         ERROR("Fail to received");
+        free(thread_info);
         sem_post(&sem);
         pthread_exit(NULL);
     }
@@ -190,22 +190,32 @@ void * proccess_client_thread(void * arg) {
 
     sleep(1);
 
-    if (send(sockfd, &resp, sizeof(resp), MSG_WAITALL) < 0) ERROR("Fail to send");
+    if (send(thread_info->sockfd, &resp, sizeof(resp), MSG_WAITALL) < 0) {
+        ERROR("Failed to send");
+    } 
 
+    free(thread_info);
     sem_post(&sem);
     pthread_exit(NULL);
 }
 
-pthread_t threads[850]; // TODO: this is stupid
-int thread_id = 0;
-
 int proccess_client() {
+    int sockfd; 
+    struct sockaddr * addr = server_addr;
+    struct thread_info * thread_info = malloc(sizeof(struct thread_info));
+    if (thread_info == NULL) err(EXIT_FAILURE, "failed to alloc memory");
+    memset(thread_info, 0, sizeof(struct thread_info));
 
-    printf("Processing\n");
+    if ((sockfd = accept(server_sockfd, addr, &server_len)) < 0) {
+        ERROR("failed to accept socket");
+        return 0;
+    }
+
+    // 1. Accept connection
+    thread_info->sockfd = sockfd;
     sem_wait(&sem);
-    pthread_create(&threads[thread_id], NULL, proccess_client_thread, NULL);
-    thread_id++;
-    pthread_detach(threads[thread_id]);
+    pthread_create(&thread_info->thread, NULL, proccess_client_thread, thread_info);
+    pthread_detach(thread_info->thread);
 
     return 1;
 }

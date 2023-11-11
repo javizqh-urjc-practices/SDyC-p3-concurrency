@@ -9,7 +9,7 @@ CFLAGS=-I.
 DEPS =
 
 %.o: %.c $(DEPS)
-	$(CC) -c -o $@ $< $(CFLAGS)
+	$(CC) -g -c -o $@ $< $(CFLAGS)
 
 all: proxy.o server client
 

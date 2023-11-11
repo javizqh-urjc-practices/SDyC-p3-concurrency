@@ -10,7 +10,7 @@
 
 #define N_ARGS 4
 #define MAX_PRIORITY_SIZE 16
-#define MAX_THREADS 400
+#define MAX_THREADS 10
 
 typedef struct args {
     int port;
