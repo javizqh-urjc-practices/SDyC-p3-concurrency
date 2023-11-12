@@ -12,6 +12,8 @@
 #include "proxy.h"
 
 #define ERROR(msg) fprintf(stderr,"PROXY ERROR: %s\n",msg)
+#define MAX_MS_SLEEP_INTERVAL 150
+#define MIN_MS_SLEEP_INTERVAL 75
 
 struct request {
     enum operations action;
@@ -34,6 +36,7 @@ struct thread_info {
 
 
 sem_t sem;
+pthread_mutex_t mutex;
 // -----------------------------------------------------------------------------
 
 // ---------------------------- Initialize sockets -----------------------------
@@ -85,6 +88,8 @@ int load_config_server(int port, enum modes priority, int max_n_threads) {
         err(EXIT_FAILURE, "failed to create semaphore");
     }
 
+    pthread_mutex_init(&mutex, NULL);
+
     priority_server = priority;
     server_sockfd = sockfd;
     server_addr = (struct sockaddr *) &servaddr;
@@ -99,14 +104,16 @@ struct response *response(int sockfd) {
     struct response * resp = malloc(sizeof(struct response));
     if (resp == NULL) err(EXIT_FAILURE, "failed to alloc memory");
     memset(resp, 0, sizeof(struct response));
+    struct response responmal;
 
     // Listen for response messages
-    if (recv(sockfd, resp, sizeof(struct response), MSG_WAITALL) < 0) {
+    if (recv(sockfd, &responmal, sizeof(struct response), MSG_WAITALL) < 0) {
         free(resp);
         ERROR("Fail to received");
+        perror("Fail to receive");
         return NULL;
     }
-
+    close(sockfd);
     return resp;
 }
 
@@ -161,6 +168,7 @@ void * proccess_client_thread(void * arg) {
     int counter = 0;
     struct request req;
     struct response resp;
+    struct timespec current_time;
 
     // Listen for response messages
     if (recv(thread_info->sockfd, &req, sizeof(req), MSG_WAITALL) < 0) {
@@ -170,15 +178,17 @@ void * proccess_client_thread(void * arg) {
         pthread_exit(NULL);
     }
 
+    pthread_mutex_lock(&mutex);
+    clock_gettime(CLOCK_REALTIME, &current_time);
     switch (req.action)
     {
     case WRITE:
-        printf("[SEC.MICRO][ESCRITOR #%d] modifica contador con valor %d\n",
-                req.id, counter);
+        printf("[%ld.%ld][ESCRITOR #%d] modifica contador con valor %d\n",
+                current_time.tv_sec, current_time.tv_nsec, req.id, counter);
         break;
     case READ:
-        printf("[SEC.MICRO][LECTOR #%d] lee contador con valor %d\n",
-                req.id, counter);
+        printf("[%ld.%ld][LECTOR #%d] modifica contador con valor %d\n",
+                current_time.tv_sec, current_time.tv_nsec, req.id, counter);
         break;
     default:
         break;
@@ -188,14 +198,18 @@ void * proccess_client_thread(void * arg) {
     resp.counter = counter;
     resp.latency_time = 0;
 
-    sleep(1);
+    // Sleep between 150 and 75 miliseconds
+    usleep(rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
+           + MIN_MS_SLEEP_INTERVAL);
 
     if (send(thread_info->sockfd, &resp, sizeof(resp), MSG_WAITALL) < 0) {
         ERROR("Failed to send");
     } 
 
+    close(thread_info->sockfd);
     free(thread_info);
     sem_post(&sem);
+    pthread_mutex_unlock(&mutex);
     pthread_exit(NULL);
 }
 

@@ -14,7 +14,7 @@ DEPS =
 all: proxy.o server client
 
 server: server.c 
-	gcc -g -Wall -o server server.c -lpthread proxy.o
+	gcc -g -Wall -o serverMi server.c -lpthread proxy.o
 
 client: client.c 
 	gcc -g -Wall -o client client.c -lpthread proxy.o
