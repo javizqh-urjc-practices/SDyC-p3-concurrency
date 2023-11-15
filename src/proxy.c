@@ -258,6 +258,7 @@ void * proccess_client_thread(void * arg) {
 
         pthread_mutex_lock(&mutex_var);
         n_writers--;
+        printf("n_writers %d\n", n_writers);
         pthread_mutex_lock(&mutex_var);
         if (n_writers == 0) {
             // We have priority, we stop readers
