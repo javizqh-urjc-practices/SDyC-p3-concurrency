@@ -40,6 +40,7 @@ struct thread_info {
 
 
 sem_t sem;
+pthread_mutex_t mutex_var;
 pthread_mutex_t mutex_readers;
 pthread_mutex_t mutex_writers;
 pthread_cond_t readers_reading;
@@ -108,6 +109,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
         err(EXIT_FAILURE, "failed to create semaphore");
     }
 
+    pthread_mutex_init(&mutex_var, NULL);
     pthread_mutex_init(&mutex_readers, NULL);
     pthread_mutex_init(&mutex_writers, NULL);
     pthread_cond_init(&readers_reading, NULL);
@@ -134,6 +136,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
 int close_config_server() {
     close(server_sockfd);
     sem_destroy(&sem);
+    pthread_mutex_destroy(&mutex_var);
     pthread_mutex_destroy(&mutex_readers);
     pthread_mutex_destroy(&mutex_writers);
     pthread_cond_destroy(&readers_reading);
@@ -223,10 +226,13 @@ void * proccess_client_thread(void * arg) {
     switch (req.action)
     {
     case WRITE:
+        pthread_mutex_lock(&mutex_var);
+        n_writers++;
+        pthread_mutex_lock(&mutex_var);
+
         clock_gettime(CLOCK_MONOTONIC, &start);
         pthread_mutex_lock(&mutex_writers);
         clock_gettime(CLOCK_MONOTONIC, &end);
-        n_writers++;
         if (priority_server == WRITER) {
             // We have priority, we stop readers
         } else if (priority_server == READER) {
@@ -249,7 +255,10 @@ void * proccess_client_thread(void * arg) {
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
         // REGION CRITICA ------------------------------------------------
-        n_writers--;
+        
+        pthread_mutex_lock(&mutex_var);
+        n_writers++;
+        pthread_mutex_lock(&mutex_var);
         if (n_writers == 0) {
             // We have priority, we stop readers
             pthread_cond_broadcast(&writers_writing);
