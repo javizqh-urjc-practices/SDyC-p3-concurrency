@@ -43,11 +43,13 @@ sem_t sem;
 pthread_mutex_t mutex_var;
 pthread_mutex_t mutex_readers;
 pthread_mutex_t mutex_writers;
-pthread_cond_t readers_reading;
-pthread_cond_t writers_writing;
+pthread_cond_t writing;
+pthread_cond_t readers_prio;
+pthread_cond_t writers_prio;
 int counter = 0;
-int n_writers = 0;
-int n_readers = 0;
+int is_writing = 0;
+int queued_writers = 0;
+int queued_readers = 0;
 // -----------------------------------------------------------------------------
 
 // ---------------------------- Initialize sockets -----------------------------
@@ -112,8 +114,9 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     pthread_mutex_init(&mutex_var, NULL);
     pthread_mutex_init(&mutex_readers, NULL);
     pthread_mutex_init(&mutex_writers, NULL);
-    pthread_cond_init(&readers_reading, NULL);
-    pthread_cond_init(&writers_writing, NULL);
+    pthread_cond_init(&writing, NULL);
+    pthread_cond_init(&readers_prio, NULL);
+    pthread_cond_init(&writers_prio, NULL);
 
     if (read(counter_fd, buff, sizeof(20)) < 0) {
         ERROR("Unable to read counter file");
@@ -139,8 +142,9 @@ int close_config_server() {
     pthread_mutex_destroy(&mutex_var);
     pthread_mutex_destroy(&mutex_readers);
     pthread_mutex_destroy(&mutex_writers);
-    pthread_cond_destroy(&readers_reading);
-    pthread_cond_destroy(&writers_writing);
+    pthread_cond_destroy(&writing);
+    pthread_cond_destroy(&readers_prio);
+    pthread_cond_destroy(&writers_prio);
     free(server_addr);
     return 1;
 }
@@ -229,17 +233,18 @@ void * proccess_client_thread(void * arg) {
         pthread_mutex_lock(&mutex_var);
         if (priority_server == READER) {
             // Check if we do not have readers
-            while (n_readers > 0) {
-                pthread_cond_wait(&readers_reading, &mutex_var);
+            while (queued_readers > 0) {
+                pthread_cond_wait(&readers_prio, &mutex_var);
             }
         }
-        n_writers++;
+        queued_writers++;
         pthread_mutex_unlock(&mutex_var);
 
         // REGION CRITICA ------------------------------------------------
         clock_gettime(CLOCK_MONOTONIC, &start);
         pthread_mutex_lock(&mutex_writers);
         clock_gettime(CLOCK_MONOTONIC, &end);
+        is_writing = 1;
         counter++;
         printf("[%ld.%.6ld][ESCRITOR #%d] modifica contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
@@ -251,26 +256,33 @@ void * proccess_client_thread(void * arg) {
         // Sleep between 150 and 75 miliseconds
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
+        is_writing = 0;
+        if (priority_server == READER) {
+            pthread_cond_broadcast(&writing);
+        }
         pthread_mutex_unlock(&mutex_writers);
         // REGION CRITICA ------------------------------------------------
 
         pthread_mutex_lock(&mutex_var);
-        n_writers--;
-        pthread_mutex_unlock(&mutex_var);
-        if (n_writers == 0) {
-            // We have priority, we stop readers
-            pthread_cond_broadcast(&writers_writing);
+        queued_writers--;
+        if (queued_writers == 0) {
+            pthread_cond_broadcast(&writers_prio);
         }
+        pthread_mutex_unlock(&mutex_var);
         break;
     case READ:
         clock_gettime(CLOCK_MONOTONIC, &start);
         pthread_mutex_lock(&mutex_readers);
         clock_gettime(CLOCK_MONOTONIC, &end);
-        n_readers++;
+        queued_readers++;
         // TODO: do not enter there is a writer inside
         if (priority_server == WRITER) {
-            while (n_writers > 0) {
-                pthread_cond_wait(&writers_writing, &mutex_readers);
+            while (queued_writers > 0) {
+                pthread_cond_wait(&writers_prio, &mutex_readers);
+            }
+        } else {
+            while (is_writing) {
+                pthread_cond_wait(&writing, &mutex_readers);
             }
         }
         pthread_mutex_unlock(&mutex_readers);
@@ -289,9 +301,9 @@ void * proccess_client_thread(void * arg) {
         // REGION CRITICA ------------------------------------------------
 
         pthread_mutex_lock(&mutex_readers);
-        n_readers--;
-        if (n_readers == 0) {
-            pthread_cond_broadcast(&readers_reading);
+        queued_readers--;
+        if (queued_readers == 0) {
+            pthread_cond_broadcast(&readers_prio);
         }
         pthread_mutex_unlock(&mutex_readers);
         break;
