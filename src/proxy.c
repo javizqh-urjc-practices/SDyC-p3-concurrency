@@ -251,7 +251,7 @@ void * proccess_client_thread(void * arg) {
         break;
     case READ:
         clock_gettime(CLOCK_MONOTONIC, &start);
-        pthread_mutex_lock(&mutex2);
+        // pthread_mutex_lock(&mutex2);
         clock_gettime(CLOCK_MONOTONIC, &end);
         if (priority_server == WRITER) {
             // Check if we do not have writers
@@ -274,7 +274,7 @@ void * proccess_client_thread(void * arg) {
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
         n_readers--;
         pthread_cond_signal(&readers_reading);
-        pthread_mutex_unlock(&mutex2);
+        // pthread_mutex_unlock(&mutex2);
         break;
     }
 
@@ -286,9 +286,9 @@ void * proccess_client_thread(void * arg) {
         ERROR("Failed to send");
     }
 
-    free(thread_info);
     sem_post(&sem);
     close(thread_info->sockfd);
+    free(thread_info);
     pthread_exit(NULL);
 }
 
