@@ -5,6 +5,9 @@
 #include <getopt.h>
 #include <err.h>
 #include <pthread.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "proxy.h"
 
@@ -19,19 +22,28 @@ typedef struct args {
 
 Args check_args(int argc, char *const *argv);
 
-// Thread specific functions
-void * thread_function(void *arg);
-
 void usage() {
     fprintf(stderr, "usage: ./server --port PORT --priority writer/reader\n");
     exit(EXIT_FAILURE);
 }
 
 int main(int argc, char *const *argv) {
+    int file_fd;
 
     Args arguments = check_args(argc, argv);
+
+    file_fd = open("server_output.txt", O_RDWR);
+
+    if (file_fd < 0) {
+        fprintf(stderr, "usage: file server_output.txt does not exist\n");
+        free(arguments);
+        exit(EXIT_FAILURE);
+    }
         
-    load_config_server(arguments->port, arguments->priority, MAX_THREADS);
+    load_config_server(arguments->port, arguments->priority, MAX_THREADS, 
+                       file_fd);
+
+    close(file_fd);
 
     // Launch n threads with a maximum amount of 400
     while (1) {

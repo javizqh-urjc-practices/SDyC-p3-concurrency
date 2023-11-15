@@ -44,7 +44,7 @@ struct response {
 };
 
 int load_config_client(char ip[MAX_IP_SIZE], int port, int actions);
-int load_config_server(int port, enum modes priority, int max_n_threads);
+int load_config_server(int port, enum modes priority, int max_n_threads, int counter_fd);
 int close_config_server();
 
 void * client_connection(void * arg);

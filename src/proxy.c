@@ -58,14 +58,20 @@ int load_config_client(char ip[MAX_IP_SIZE], int port, int action) {
     return 1; 
 }
 
-int load_config_server(int port, enum modes priority, int max_n_threads) {
+int load_config_server(int port, enum modes priority, int max_n_threads,
+                       int counter_fd) {
     const int enable = 1;
     struct sockaddr_in servaddr;
     int sockfd;
     socklen_t len;
     struct sockaddr * addr = malloc(sizeof(struct sockaddr));
+    char * buff = malloc(sizeof(20));
+
     if (addr == NULL) err(EXIT_FAILURE, "failed to alloc memory");
     memset(addr, 0, sizeof(struct sockaddr));
+
+    if (buff == NULL) err(EXIT_FAILURE, "failed to alloc memory");
+    memset(buff, 0, sizeof(20));
 
     setbuf(stdout, NULL);
 
@@ -107,6 +113,14 @@ int load_config_server(int port, enum modes priority, int max_n_threads) {
     pthread_cond_init(&readers_reading, NULL);
     pthread_cond_init(&writers_writing, NULL);
 
+    if (read(counter_fd, buff, sizeof(20)) < 0) {
+        ERROR("Unable to read counter file");
+        counter = 0;
+    } else {
+        counter = atoi(buff);
+    }
+
+    free(buff);
 
     priority_server = priority;
     server_sockfd = sockfd;
@@ -212,14 +226,14 @@ void * proccess_client_thread(void * arg) {
         clock_gettime(CLOCK_MONOTONIC, &start);
         pthread_mutex_lock(&mutex);
         clock_gettime(CLOCK_MONOTONIC, &end);
-        if (priority_server == WRITER) {
-            // We have priority, we stop readers
-        } else if (priority_server == READER) {
-            // Check if we do not have readers
-            while (n_readers > 0) {
-                pthread_cond_wait(&readers_reading, &mutex);
-            }
-        }
+        // if (priority_server == WRITER) {
+        //     // We have priority, we stop readers
+        // } else if (priority_server == READER) {
+        //     // Check if we do not have readers
+        //     while (n_readers > 0) {
+        //         pthread_cond_wait(&readers_reading, &mutex);
+        //     }
+        // }
         counter++;
         printf("[%ld.%.6ld][ESCRITOR #%d] modifica contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
