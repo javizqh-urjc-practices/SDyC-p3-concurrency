@@ -40,7 +40,7 @@ struct thread_info {
 
 
 sem_t sem;
-pthread_mutex_t mutex;
+pthread_mutex_t mutex_readers;
 pthread_mutex_t mutex_writers;
 pthread_cond_t readers_reading;
 pthread_cond_t writers_writing;
@@ -108,7 +108,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
         err(EXIT_FAILURE, "failed to create semaphore");
     }
 
-    pthread_mutex_init(&mutex, NULL);
+    pthread_mutex_init(&mutex_readers, NULL);
     pthread_mutex_init(&mutex_writers, NULL);
     pthread_cond_init(&readers_reading, NULL);
     pthread_cond_init(&writers_writing, NULL);
@@ -134,7 +134,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
 int close_config_server() {
     close(server_sockfd);
     sem_destroy(&sem);
-    pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&mutex_readers);
     pthread_mutex_destroy(&mutex_writers);
     pthread_cond_destroy(&readers_reading);
     pthread_cond_destroy(&writers_writing);
@@ -226,6 +226,7 @@ void * proccess_client_thread(void * arg) {
         clock_gettime(CLOCK_MONOTONIC, &start);
         pthread_mutex_lock(&mutex_writers);
         clock_gettime(CLOCK_MONOTONIC, &end);
+        n_writers++;
         if (priority_server == WRITER) {
             // We have priority, we stop readers
         } else if (priority_server == READER) {
@@ -248,14 +249,19 @@ void * proccess_client_thread(void * arg) {
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
         // REGION CRITICA ------------------------------------------------
-
-        pthread_cond_signal(&writers_writing);
+        n_writers--;
+        if (n_writers == 0) {
+            // We have priority, we stop readers
+            pthread_cond_broadcast(&writers_writing);
+        }
         pthread_mutex_unlock(&mutex_writers);
         break;
     case READ:
         clock_gettime(CLOCK_MONOTONIC, &start);
-        // pthread_mutex_lock(&mutex2);
+        pthread_mutex_lock(&mutex_readers);
         clock_gettime(CLOCK_MONOTONIC, &end);
+        n_readers++;
+        pthread_mutex_unlock(&mutex_readers);
         // if (priority_server == WRITER) {
         //     // Check if we do not have writers
         //     while (n_writers > 0) {
@@ -266,7 +272,6 @@ void * proccess_client_thread(void * arg) {
         while (n_writers > 0) {
             pthread_cond_wait(&writers_writing, &mutex_writers);
         }
-        // n_readers++;
 
         // REGION CRITICA ------------------------------------------------
         printf("[%ld.%.6ld][LECTOR #%d] lee contador con valor %d\n",
@@ -281,9 +286,12 @@ void * proccess_client_thread(void * arg) {
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
         // REGION CRITICA ------------------------------------------------
 
-        // n_readers--;
-        // pthread_cond_signal(&readers_reading);
-        // pthread_mutex_unlock(&mutex2);
+        pthread_mutex_lock(&mutex_readers);
+        n_readers--;
+        if (n_readers == 0) {
+            pthread_cond_signal(&readers_reading);
+        }
+        pthread_mutex_unlock(&mutex_readers);
         break;
     }
 
