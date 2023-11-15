@@ -231,13 +231,13 @@ void * proccess_client_thread(void * arg) {
     {
     case WRITE:
         pthread_mutex_lock(&mutex_var);
+        queued_writers++;
         if (priority_server == READER) {
             // Check if we do not have readers
             while (queued_readers > 0) {
                 pthread_cond_wait(&readers_prio, &mutex_var);
             }
         }
-        queued_writers++;
         pthread_mutex_unlock(&mutex_var);
 
         // REGION CRITICA ------------------------------------------------
@@ -275,18 +275,14 @@ void * proccess_client_thread(void * arg) {
         pthread_mutex_lock(&mutex_readers);
         clock_gettime(CLOCK_MONOTONIC, &end);
         queued_readers++;
-        // TODO: do not enter there is a writer inside
         if (priority_server == WRITER) {
             while (queued_writers > 0) {
                 pthread_cond_wait(&writers_prio, &mutex_readers);
             }
-        } else {
-            // while (is_writing) {
-            //     pthread_cond_wait(&writing, &mutex_readers);
-            // }
         }
         pthread_mutex_unlock(&mutex_readers);
 
+        // TODO: do not enter there is a writer inside
         // REGION CRITICA ------------------------------------------------
         printf("[%ld.%.6ld][LECTOR #%d] lee contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
