@@ -228,6 +228,12 @@ void * proccess_client_thread(void * arg) {
     case WRITE:
         pthread_mutex_lock(&mutex_var);
         n_writers++;
+        if (priority_server == READER) {
+            // Check if we do not have readers
+            while (n_readers > 0) {
+                pthread_cond_wait(&readers_reading, &mutex_var);
+            }
+        }
         pthread_mutex_unlock(&mutex_var);
 
         clock_gettime(CLOCK_MONOTONIC, &start);
@@ -298,7 +304,7 @@ void * proccess_client_thread(void * arg) {
         pthread_mutex_lock(&mutex_readers);
         n_readers--;
         if (n_readers == 0) {
-            pthread_cond_signal(&readers_reading);
+            pthread_cond_broadcast(&readers_reading);
         }
         pthread_mutex_unlock(&mutex_readers);
         break;
