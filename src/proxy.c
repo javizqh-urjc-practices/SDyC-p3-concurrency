@@ -41,7 +41,7 @@ struct thread_info {
 
 sem_t sem;
 pthread_mutex_t mutex;
-pthread_mutex_t mutex2;
+pthread_mutex_t mutex_writers;
 pthread_cond_t readers_reading;
 pthread_cond_t writers_writing;
 int counter = 0;
@@ -109,7 +109,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     }
 
     pthread_mutex_init(&mutex, NULL);
-    pthread_mutex_init(&mutex2, NULL);
+    pthread_mutex_init(&mutex_writers, NULL);
     pthread_cond_init(&readers_reading, NULL);
     pthread_cond_init(&writers_writing, NULL);
 
@@ -135,7 +135,7 @@ int close_config_server() {
     close(server_sockfd);
     sem_destroy(&sem);
     pthread_mutex_destroy(&mutex);
-    pthread_mutex_destroy(&mutex2);
+    pthread_mutex_destroy(&mutex_writers);
     pthread_cond_destroy(&readers_reading);
     pthread_cond_destroy(&writers_writing);
     free(server_addr);
@@ -224,16 +224,18 @@ void * proccess_client_thread(void * arg) {
     {
     case WRITE:
         clock_gettime(CLOCK_MONOTONIC, &start);
-        pthread_mutex_lock(&mutex);
+        pthread_mutex_lock(&mutex_writers);
         clock_gettime(CLOCK_MONOTONIC, &end);
-        // if (priority_server == WRITER) {
-        //     // We have priority, we stop readers
-        // } else if (priority_server == READER) {
-        //     // Check if we do not have readers
-        //     while (n_readers > 0) {
-        //         pthread_cond_wait(&readers_reading, &mutex);
-        //     }
-        // }
+        if (priority_server == WRITER) {
+            // We have priority, we stop readers
+        } else if (priority_server == READER) {
+            // Check if we do not have readers
+            // while (n_readers > 0) {
+            //     pthread_cond_wait(&readers_reading, &mutex);
+            // }
+        }
+
+        // REGION CRITICA ------------------------------------------------
         counter++;
         printf("[%ld.%.6ld][ESCRITOR #%d] modifica contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
@@ -245,24 +247,29 @@ void * proccess_client_thread(void * arg) {
         // Sleep between 150 and 75 miliseconds
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
-        n_readers--;
+        // REGION CRITICA ------------------------------------------------
+
         pthread_cond_signal(&writers_writing);
-        pthread_mutex_unlock(&mutex);
+        pthread_mutex_unlock(&mutex_writers);
         break;
     case READ:
         clock_gettime(CLOCK_MONOTONIC, &start);
         // pthread_mutex_lock(&mutex2);
         clock_gettime(CLOCK_MONOTONIC, &end);
-        if (priority_server == WRITER) {
-            // Check if we do not have writers
-            while (n_writers > 0) {
-                pthread_cond_wait(&writers_writing, &mutex2);
-            }
-        } else if (priority_server == READER) {
-            // We have priority, we stop writers
+        // if (priority_server == WRITER) {
+        //     // Check if we do not have writers
+        //     while (n_writers > 0) {
+        //     }
+        // } else if (priority_server == READER) {
+        //     // We have priority, we stop writers
+        // }
+        while (n_writers > 0) {
+            pthread_cond_wait(&writers_writing, &mutex_writers);
         }
-        n_readers++;
-        printf("[%ld.%.6ld][LECTOR #%d] modifica contador con valor %d\n",
+        // n_readers++;
+
+        // REGION CRITICA ------------------------------------------------
+        printf("[%ld.%.6ld][LECTOR #%d] lee contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
                 req.id, counter);
         resp.action = req.action;
@@ -272,8 +279,10 @@ void * proccess_client_thread(void * arg) {
         // Sleep between 150 and 75 miliseconds
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
-        n_readers--;
-        pthread_cond_signal(&readers_reading);
+        // REGION CRITICA ------------------------------------------------
+
+        // n_readers--;
+        // pthread_cond_signal(&readers_reading);
         // pthread_mutex_unlock(&mutex2);
         break;
     }
