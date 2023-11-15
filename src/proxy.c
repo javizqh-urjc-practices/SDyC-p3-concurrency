@@ -12,6 +12,9 @@
 #include "proxy.h"
 
 #define ERROR(msg) fprintf(stderr,"PROXY ERROR: %s\n",msg)
+#define NS_TO_S 1000000000
+#define NS_TO_MICROS 1000
+#define MICROS_TO_MS 1000
 #define MAX_MS_SLEEP_INTERVAL 150
 #define MIN_MS_SLEEP_INTERVAL 75
 
@@ -22,6 +25,7 @@ struct request {
 
 // ------------------------ Global variables for client ------------------------
 int client_port;
+int client_action;
 char client_ip[MAX_IP_SIZE];
 // ------------------------ Global variables for server ------------------------
 int priority_server;
@@ -37,12 +41,19 @@ struct thread_info {
 
 sem_t sem;
 pthread_mutex_t mutex;
+pthread_mutex_t mutex2;
+pthread_cond_t readers_reading;
+pthread_cond_t writers_writing;
+int counter = 0;
+int n_writers = 0;
+int n_readers = 0;
 // -----------------------------------------------------------------------------
 
 // ---------------------------- Initialize sockets -----------------------------
-int load_config_client(char ip[MAX_IP_SIZE], int port) {
+int load_config_client(char ip[MAX_IP_SIZE], int port, int action) {
     client_port = port;
     strcpy(client_ip, ip);
+    client_action = action;
 
     return 1; 
 }
@@ -52,6 +63,9 @@ int load_config_server(int port, enum modes priority, int max_n_threads) {
     struct sockaddr_in servaddr;
     int sockfd;
     socklen_t len;
+    struct sockaddr * addr = malloc(sizeof(struct sockaddr));
+    if (addr == NULL) err(EXIT_FAILURE, "failed to alloc memory");
+    memset(addr, 0, sizeof(struct sockaddr));
 
     setbuf(stdout, NULL);
 
@@ -79,7 +93,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads) {
         return 0;
     }
 
-    if (listen(sockfd, 5) < 0) {
+    if (listen(sockfd, max_n_threads) < 0) {
         ERROR("Unable to listen");
         return 0;
     }
@@ -89,42 +103,44 @@ int load_config_server(int port, enum modes priority, int max_n_threads) {
     }
 
     pthread_mutex_init(&mutex, NULL);
+    pthread_mutex_init(&mutex2, NULL);
+    pthread_cond_init(&readers_reading, NULL);
+    pthread_cond_init(&writers_writing, NULL);
+
 
     priority_server = priority;
     server_sockfd = sockfd;
-    server_addr = (struct sockaddr *) &servaddr;
+    memcpy(addr, (struct sockaddr *) &servaddr, sizeof(struct sockaddr));
+    server_addr = addr;
     server_len = len;
 
     return sockfd > 0;
 }
+
+int close_config_server() {
+    close(server_sockfd);
+    sem_destroy(&sem);
+    pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&mutex2);
+    pthread_cond_destroy(&readers_reading);
+    pthread_cond_destroy(&writers_writing);
+    free(server_addr);
+    return 1;
+}
 // -----------------------------------------------------------------------------
 
 // --------------------------- Functions for client ----------------------------
-struct response *response(int sockfd) {
-    struct response * resp = malloc(sizeof(struct response));
-    if (resp == NULL) err(EXIT_FAILURE, "failed to alloc memory");
-    memset(resp, 0, sizeof(struct response));
-    struct response responmal;
-
-    // Listen for response messages
-    if (recv(sockfd, &responmal, sizeof(struct response), MSG_WAITALL) < 0) {
-        free(resp);
-        ERROR("Fail to received");
-        perror("Fail to receive");
-        return NULL;
-    }
-    close(sockfd);
-    return resp;
-}
-
-struct response * client_connexion(int id, int action) {
+void * client_connection(void * arg) {
+    int id = *(int *) arg;
     struct in_addr addr;
     struct sockaddr_in servaddr;
     int sockfd;
     socklen_t len;
+    struct response resp;
     struct request req;
-    req.action = action;
+    req.action = client_action;
     req.id = id;
+
 
     if (inet_pton(AF_INET, (char *) client_ip, &addr) < 0) {
         return NULL;
@@ -141,7 +157,7 @@ struct response * client_connexion(int id, int action) {
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (sockfd < 0) {
-        fprintf(stderr, "Socket failed\n");
+        perror("Socket failed\n");
         return NULL;
     }
 
@@ -152,23 +168,34 @@ struct response * client_connexion(int id, int action) {
 
     if (send(sockfd, &req, sizeof(req), MSG_WAITALL) < 0) ERROR("Fail to send");
 
-    return response(sockfd);
-}
+    // Listen for response messages
+    if (recv(sockfd, &resp, sizeof(resp), MSG_WAITALL) < 0) {
+        ERROR("Fail to received");
+        perror("Fail to receive");
+        close(sockfd);
+        pthread_exit(NULL);
+    }
+    switch (client_action) {
+    case READER:
+        printf("[Cliente #%d] Lector, contador=%d, tiempo=%ld ns.\n", id,
+                resp.counter, resp.latency_time);
+        break;
+    case WRITER:
+        printf("[Cliente #%d] Escritor, contador=%d, tiempo=%ld ns.\n", id,
+                resp.counter, resp.latency_time);
+        break;
+    }
 
-struct response * reader(int id) {
-    return client_connexion(id, READ);
-}
 
-struct response * writer(int id) {
-    return client_connexion(id, WRITE);
+    close(sockfd);
+    pthread_exit(NULL);
 }
 // ---------------------------- Function for server ----------------------------
 void * proccess_client_thread(void * arg) {
     struct thread_info * thread_info = (struct thread_info *) arg;
-    int counter = 0;
     struct request req;
     struct response resp;
-    struct timespec current_time;
+    struct timespec current_time, start, end;
 
     // Listen for response messages
     if (recv(thread_info->sockfd, &req, sizeof(req), MSG_WAITALL) < 0) {
@@ -178,49 +205,87 @@ void * proccess_client_thread(void * arg) {
         pthread_exit(NULL);
     }
 
-    pthread_mutex_lock(&mutex);
     clock_gettime(CLOCK_REALTIME, &current_time);
     switch (req.action)
     {
     case WRITE:
-        printf("[%ld.%ld][ESCRITOR #%d] modifica contador con valor %d\n",
-                current_time.tv_sec, current_time.tv_nsec, req.id, counter);
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        pthread_mutex_lock(&mutex);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        if (priority_server == WRITER) {
+            // We have priority, we stop readers
+        } else if (priority_server == READER) {
+            // Check if we do not have readers
+            while (n_readers > 0) {
+                pthread_cond_wait(&readers_reading, &mutex);
+            }
+        }
+        counter++;
+        printf("[%ld.%.6ld][ESCRITOR #%d] modifica contador con valor %d\n",
+                current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
+                req.id, counter);
+        resp.action = req.action;
+        resp.counter = counter;
+        resp.latency_time = end.tv_nsec - start.tv_nsec;
+
+        // Sleep between 150 and 75 miliseconds
+        usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
+            + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
+        n_readers--;
+        pthread_cond_signal(&writers_writing);
+        pthread_mutex_unlock(&mutex);
         break;
     case READ:
-        printf("[%ld.%ld][LECTOR #%d] modifica contador con valor %d\n",
-                current_time.tv_sec, current_time.tv_nsec, req.id, counter);
-        break;
-    default:
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        pthread_mutex_lock(&mutex2);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        if (priority_server == WRITER) {
+            // Check if we do not have writers
+            while (n_writers > 0) {
+                pthread_cond_wait(&writers_writing, &mutex2);
+            }
+        } else if (priority_server == READER) {
+            // We have priority, we stop writers
+        }
+        n_readers++;
+        printf("[%ld.%.6ld][LECTOR #%d] modifica contador con valor %d\n",
+                current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
+                req.id, counter);
+        resp.action = req.action;
+        resp.counter = counter;
+        resp.latency_time = end.tv_nsec - start.tv_nsec;
+
+        // Sleep between 150 and 75 miliseconds
+        usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
+            + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
+        n_readers--;
+        pthread_cond_signal(&readers_reading);
+        pthread_mutex_unlock(&mutex2);
         break;
     }
 
-    resp.action = req.action;
-    resp.counter = counter;
-    resp.latency_time = 0;
-
-    // Sleep between 150 and 75 miliseconds
-    usleep(rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
-           + MIN_MS_SLEEP_INTERVAL);
+    if (resp.latency_time < 0) {
+        resp.latency_time = NS_TO_S - resp.latency_time;
+    }
 
     if (send(thread_info->sockfd, &resp, sizeof(resp), MSG_WAITALL) < 0) {
         ERROR("Failed to send");
-    } 
+    }
 
-    close(thread_info->sockfd);
     free(thread_info);
     sem_post(&sem);
-    pthread_mutex_unlock(&mutex);
+    close(thread_info->sockfd);
     pthread_exit(NULL);
 }
 
 int proccess_client() {
     int sockfd; 
-    struct sockaddr * addr = server_addr;
+    // struct sockaddr * addr = server_addr;
     struct thread_info * thread_info = malloc(sizeof(struct thread_info));
     if (thread_info == NULL) err(EXIT_FAILURE, "failed to alloc memory");
     memset(thread_info, 0, sizeof(struct thread_info));
 
-    if ((sockfd = accept(server_sockfd, addr, &server_len)) < 0) {
+    if ((sockfd = accept(server_sockfd, server_addr, &server_len)) < 0) {
         ERROR("failed to accept socket");
         return 0;
     }

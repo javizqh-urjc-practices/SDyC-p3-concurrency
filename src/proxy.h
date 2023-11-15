@@ -16,11 +16,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #include <pthread.h>
 #include <err.h>
 #include <string.h>
 #include <semaphore.h>
-#include <unistd.h>
 
 #define MAX_IP_SIZE 16
 #define MODE_READER_STR "reader"
@@ -43,9 +43,9 @@ struct response {
     long latency_time;
 };
 
-int load_config_client(char ip[MAX_IP_SIZE], int port);
+int load_config_client(char ip[MAX_IP_SIZE], int port, int actions);
 int load_config_server(int port, enum modes priority, int max_n_threads);
+int close_config_server();
 
-struct response * reader(int id);
-struct response * writer(int id);
+void * client_connection(void * arg);
 int proccess_client();

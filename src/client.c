@@ -10,6 +10,8 @@
 
 #define N_ARGS 8
 
+pthread_mutex_t mutex_a;
+
 typedef struct args {
     char ip [MAX_IP_SIZE];
     int port;
@@ -36,12 +38,12 @@ int main(int argc, char *const *argv) {
     
     execution_mode = arguments->mode;
 
-    load_config_client(arguments->ip, arguments->port);
+    load_config_client(arguments->ip, arguments->port, arguments->mode);
 
     // Launch n threads
     for (int i = 0; i < arguments->threads; i++) {
         thread_ids[i] = i;
-        pthread_create(&threads[i], NULL, thread_function,
+        pthread_create(&threads[i], NULL, client_connection,
                        (void *) &thread_ids[i]);
     }
 
@@ -122,24 +124,26 @@ Args check_args(int argc, char *const *argv) {
     return arguments;
 }
 
-void * thread_function(void *arg) {
-    int id = *(int *) arg;
-    struct response * resp;
+// void * thread_function(void *arg) {
+//     int id = *(int *) arg;
+//     struct response * resp;
 
-    switch (execution_mode) {
-    case READER:
-        resp = reader(id); // Returns X and Y values
-        if (resp == NULL) pthread_exit(NULL);
-        printf("[Cliente #%d] Lector, contador=%d, tiempo=%ld ns.\n", id,
-               resp->counter, resp->latency_time);
-        break;
-    case WRITER:
-        resp = writer(id); // Returns X and Y values
-        if (resp == NULL) pthread_exit(NULL);
-        printf("[Cliente #%d] Escritor, contador=%d, tiempo=%ld ns.\n", id,
-               resp->counter, resp->latency_time);
-        break;
-    }
-    free(resp);
-    pthread_exit(NULL);
-}
+//     switch (execution_mode) {
+//     case READER:
+//         resp = reader(id); // Returns X and Y values
+//         if (resp == NULL) pthread_exit(NULL);
+//         printf("[Cliente #%d] Lector, contador=%d, tiempo=%ld ns.\n", id,
+//                resp->counter, resp->latency_time);
+//         break;
+//     case WRITER:
+//         pthread_mutex_lock(&mutex_a);
+//         resp = writer(id); // Returns X and Y values
+//         pthread_mutex_unlock(&mutex_a);
+//         if (resp == NULL) pthread_exit(NULL);
+//         printf("[Cliente #%d] Escritor, contador=%d, tiempo=%ld ns.\n", id,
+//                resp->counter, resp->latency_time);
+//         break;
+//     }
+//     free(resp);
+//     pthread_exit(NULL);
+// }

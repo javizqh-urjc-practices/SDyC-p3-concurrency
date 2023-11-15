@@ -10,7 +10,7 @@
 
 #define N_ARGS 4
 #define MAX_PRIORITY_SIZE 16
-#define MAX_THREADS 400
+#define MAX_THREADS 600
 
 typedef struct args {
     int port;
@@ -39,6 +39,7 @@ int main(int argc, char *const *argv) {
     }
 
     free(arguments);
+    close_config_server();
 
     return 0;
 }
