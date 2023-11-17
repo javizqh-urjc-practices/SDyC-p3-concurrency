@@ -257,10 +257,14 @@ void * proccess_client_thread(void * arg) {
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
         is_writing = 0;
-        // if (priority_server == READER) {
-        //     pthread_cond_broadcast(&writing);
-        // }
-        pthread_mutex_unlock(&mutex_writers);
+        if (priority_server == READER) {
+            pthread_cond_broadcast(&writing);
+            if (queued_readers == 0) {
+                pthread_mutex_unlock(&mutex_writers);
+            }
+        } else {
+            pthread_mutex_unlock(&mutex_writers);
+        }
         // REGION CRITICA ------------------------------------------------
 
         pthread_mutex_lock(&mutex_var);
@@ -279,6 +283,9 @@ void * proccess_client_thread(void * arg) {
             while (queued_writers > 0) {
                 pthread_cond_wait(&writers_prio, &mutex_readers);
             }
+        }
+        while (is_writing > 0) {
+            pthread_cond_wait(&writing, &mutex_readers);
         }
         pthread_mutex_unlock(&mutex_readers);
 
@@ -300,6 +307,9 @@ void * proccess_client_thread(void * arg) {
         queued_readers--;
         if (queued_readers == 0) {
             pthread_cond_broadcast(&readers_prio);
+            if (priority_server == READER) {
+                pthread_mutex_unlock(&mutex_writers);
+            }
         }
         pthread_mutex_unlock(&mutex_readers);
         break;
