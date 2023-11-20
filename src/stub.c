@@ -1,5 +1,5 @@
 /**
- * @file proxy.c
+ * @file stub.c
  * @author Javier Izquierdo Hernandez (j.izquierdoh.2021@alumnos.urjc.es)
  * @brief 
  * @version 0.1
@@ -9,7 +9,7 @@
  * 
  */
 
-#include "proxy.h"
+#include "stub.h"
 
 #define ERROR(msg) fprintf(stderr,"PROXY ERROR: %s\n",msg)
 #define NS_TO_S 1000000000
@@ -32,6 +32,7 @@ int priority_server;
 int server_sockfd;
 struct sockaddr *server_addr;
 socklen_t server_len;
+char * server_counter_file;
 
 struct thread_info {
     pthread_t thread;
@@ -62,10 +63,10 @@ int load_config_client(char ip[MAX_IP_SIZE], int port, int action) {
 }
 
 int load_config_server(int port, enum modes priority, int max_n_threads,
-                       int counter_fd) {
+                       char * counter_file) {
     const int enable = 1;
     struct sockaddr_in servaddr;
-    int sockfd;
+    int sockfd, counter_fd;
     socklen_t len;
     struct sockaddr * addr = malloc(sizeof(struct sockaddr));
     char * buff = malloc(sizeof(20));
@@ -118,6 +119,12 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     pthread_cond_init(&readers_prio, NULL);
     pthread_cond_init(&writers_prio, NULL);
 
+    if ((counter_fd = open(counter_file, O_RDWR)) < 0) {
+        ERROR("Unable to open counter output file");
+        free(buff);
+        return 0;
+    }
+
     if (read(counter_fd, buff, sizeof(20)) < 0) {
         ERROR("Unable to read counter file");
         counter = 0;
@@ -126,9 +133,11 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     }
 
     free(buff);
+    close(counter_fd);
 
     priority_server = priority;
     server_sockfd = sockfd;
+    server_counter_file = counter_file;
     memcpy(addr, (struct sockaddr *) &servaddr, sizeof(struct sockaddr));
     server_addr = addr;
     server_len = len;
@@ -217,6 +226,11 @@ void * proccess_client_thread(void * arg) {
     struct request req;
     struct response resp;
     struct timespec current_time, start, end;
+    int counter_fd;
+    char * buff = malloc(sizeof(20));
+
+    if (buff == NULL) err(EXIT_FAILURE, "failed to alloc memory");
+    memset(buff, 0, sizeof(20));
 
     // Listen for response messages
     if (recv(thread_info->sockfd, &req, sizeof(req), MSG_WAITALL) < 0) {
@@ -246,6 +260,15 @@ void * proccess_client_thread(void * arg) {
         clock_gettime(CLOCK_MONOTONIC, &end);
         is_writing = 1;
         counter++;
+        if ((counter_fd = open(server_counter_file, O_TRUNC | O_WRONLY)) < 0) {
+            ERROR("Unable to open counter output file");
+        } else {
+            sprintf(buff, "%d", counter);
+            if (write(counter_fd, buff, sizeof(20)) < 0) {
+                ERROR("Unable to write counter file");
+            }
+            close(counter_fd);
+        }
         printf("[%ld.%.6ld][ESCRITOR #%d] modifica contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
                 req.id, counter);
@@ -276,8 +299,8 @@ void * proccess_client_thread(void * arg) {
         break;
     case READ:
         clock_gettime(CLOCK_MONOTONIC, &start);
+        // LOGICA DE ENTRADA A REGION CRITICA -----------------------------
         pthread_mutex_lock(&mutex_readers);
-        clock_gettime(CLOCK_MONOTONIC, &end);
         queued_readers++;
         if (priority_server == WRITER) {
             while (queued_writers > 0) {
@@ -288,9 +311,10 @@ void * proccess_client_thread(void * arg) {
             pthread_cond_wait(&writing, &mutex_readers);
         }
         pthread_mutex_unlock(&mutex_readers);
-
-        // TODO: do not enter there is a writer inside
+        // LOGICA DE ENTRADA A REGION CRITICA -----------------------------
         // REGION CRITICA ------------------------------------------------
+        clock_gettime(CLOCK_MONOTONIC, &end);
+
         printf("[%ld.%.6ld][LECTOR #%d] lee contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
                 req.id, counter);

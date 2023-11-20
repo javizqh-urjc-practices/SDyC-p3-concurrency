@@ -11,13 +11,13 @@ DEPS =
 %.o: %.c $(DEPS)
 	$(CC) -g -c -o $@ $< $(CFLAGS)
 
-all: proxy.o server client
+all: stub.o server client
 
 server: server.c 
-	gcc -g -Wall -o serverMi server.c -lpthread proxy.o
+	gcc -g -Wall -o serverMi server.c -lpthread stub.o
 
 client: client.c 
-	gcc -g -Wall -o client client.c -lpthread proxy.o
+	gcc -g -Wall -o client client.c -lpthread stub.o
 
 clean:
 	rm -f *.o client server

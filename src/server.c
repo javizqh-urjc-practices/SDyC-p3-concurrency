@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "proxy.h"
+#include "stub.h"
 
 #define N_ARGS 4
 #define MAX_PRIORITY_SIZE 16
@@ -28,22 +28,10 @@ void usage() {
 }
 
 int main(int argc, char *const *argv) {
-    int file_fd;
-
     Args arguments = check_args(argc, argv);
 
-    file_fd = open("server_output.txt", O_RDWR);
-
-    if (file_fd < 0) {
-        fprintf(stderr, "usage: file server_output.txt does not exist\n");
-        free(arguments);
-        exit(EXIT_FAILURE);
-    }
-        
     load_config_server(arguments->port, arguments->priority, MAX_THREADS, 
-                       file_fd);
-
-    close(file_fd);
+                       "server_output.txt");
 
     // Launch n threads with a maximum amount of 400
     while (1) {

@@ -6,7 +6,7 @@
 #include <err.h>
 #include <pthread.h>
 
-#include "proxy.h"
+#include "stub.h"
 
 #define N_ARGS 8
 
