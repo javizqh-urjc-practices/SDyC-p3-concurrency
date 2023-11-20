@@ -12,6 +12,7 @@
 #include "stub.h"
 
 #define ERROR(msg) fprintf(stderr,"PROXY ERROR: %s\n",msg)
+#define INFO(msg) fprintf(stderr,"PROXY INFO: %s\n",msg)
 #define NS_TO_S 1000000000
 #define NS_TO_MICROS 1000
 #define MICROS_TO_MS 1000
@@ -39,7 +40,6 @@ struct thread_info {
     int sockfd;
 };
 
-
 sem_t sem;
 pthread_mutex_t mutex_var;
 pthread_mutex_t mutex_readers;
@@ -55,6 +55,7 @@ int queued_readers = 0;
 
 // ---------------------------- Initialize sockets -----------------------------
 int load_config_client(char ip[MAX_IP_SIZE], int port, int action) {
+    // Set global variables ----------------------------------------------------
     client_port = port;
     strcpy(client_ip, ip);
     client_action = action;
@@ -69,14 +70,15 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     int sockfd, counter_fd;
     socklen_t len;
     struct sockaddr * addr = malloc(sizeof(struct sockaddr));
-    char * buff = malloc(sizeof(20));
+    char * buff = malloc(sizeof(long));
 
     if (addr == NULL) err(EXIT_FAILURE, "failed to alloc memory");
     memset(addr, 0, sizeof(struct sockaddr));
 
     if (buff == NULL) err(EXIT_FAILURE, "failed to alloc memory");
-    memset(buff, 0, sizeof(20));
+    memset(buff, 0, sizeof(long));
 
+    // Create socket and liste -------------------------------------------------
     setbuf(stdout, NULL);
 
     servaddr.sin_family = AF_INET;
@@ -108,6 +110,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
         return 0;
     }
 
+    // Init mutex and semaphores -----------------------------------------------
     if (sem_init(&sem, 0, max_n_threads) == -1) {
         err(EXIT_FAILURE, "failed to create semaphore");
     }
@@ -119,8 +122,9 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     pthread_cond_init(&readers_prio, NULL);
     pthread_cond_init(&writers_prio, NULL);
 
+    // Read counter file -------------------------------------------------------
     if ((counter_fd = open(counter_file, O_RDONLY)) < 0) {
-        ERROR("Unable to open counter output file, creating new one.");
+        INFO("Unable to open counter output file, creating new one.");
         counter_fd = open(counter_file, O_CREAT | O_RDONLY, 0777);
     }
 
@@ -133,7 +137,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
 
     free(buff);
     close(counter_fd);
-
+    // Set global variables ----------------------------------------------------
     priority_server = priority;
     server_sockfd = sockfd;
     server_counter_file = counter_file;
@@ -145,7 +149,9 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
 }
 
 int close_config_server() {
+    // Close initial socket ----------------------------------------------------
     close(server_sockfd);
+    // Destroy thread control structures ---------------------------------------
     sem_destroy(&sem);
     pthread_mutex_destroy(&mutex_var);
     pthread_mutex_destroy(&mutex_readers);
@@ -153,6 +159,7 @@ int close_config_server() {
     pthread_cond_destroy(&writing);
     pthread_cond_destroy(&readers_prio);
     pthread_cond_destroy(&writers_prio);
+    // Free global variables ---------------------------------------------------
     free(server_addr);
     return 1;
 }
@@ -170,7 +177,7 @@ void * client_connection(void * arg) {
     req.action = client_action;
     req.id = id;
 
-
+    // Create socket and connect -----------------------------------------------
     if (inet_pton(AF_INET, (char *) client_ip, &addr) < 0) {
         return NULL;
     }
@@ -195,15 +202,17 @@ void * client_connection(void * arg) {
         return NULL;
     }
 
+    // Send request message ----------------------------------------------------
     if (send(sockfd, &req, sizeof(req), MSG_WAITALL) < 0) ERROR("Fail to send");
 
-    // Listen for response messages
+    // Listen for response messages --------------------------------------------
     if (recv(sockfd, &resp, sizeof(resp), MSG_WAITALL) < 0) {
         ERROR("Fail to received");
         perror("Fail to receive");
         close(sockfd);
         pthread_exit(NULL);
     }
+    // Print response ----------------------------------------------------------
     switch (client_action) {
     case READER:
         printf("[Cliente #%d] Lector, contador=%d, tiempo=%ld ns.\n", id,
@@ -215,7 +224,7 @@ void * client_connection(void * arg) {
         break;
     }
 
-
+    // Close socket and exit ---------------------------------------------------
     close(sockfd);
     pthread_exit(NULL);
 }
@@ -226,12 +235,12 @@ void * proccess_client_thread(void * arg) {
     struct response resp;
     struct timespec current_time, start, end;
     int counter_fd;
-    char * buff = malloc(sizeof(20));
+    char * buff = malloc(sizeof(long));
 
     if (buff == NULL) err(EXIT_FAILURE, "failed to alloc memory");
-    memset(buff, 0, sizeof(20));
+    memset(buff, 0, sizeof(long));
 
-    // Listen for response messages
+    // Listen for response messages --------------------------------------------
     if (recv(thread_info->sockfd, &req, sizeof(req), MSG_WAITALL) < 0) {
         ERROR("Fail to received");
         free(thread_info);
@@ -239,10 +248,13 @@ void * proccess_client_thread(void * arg) {
         pthread_exit(NULL);
     }
 
+    // Get current time --------------------------------------------------------
     clock_gettime(CLOCK_REALTIME, &current_time);
+    // 2 types of processing ---------------------------------------------------
     switch (req.action)
     {
     case WRITE:
+        // LOGICA DE ENTRADA A REGION CRITICA ----------------------------------
         pthread_mutex_lock(&mutex_var);
         queued_writers++;
         if (priority_server == READER) {
@@ -252,6 +264,7 @@ void * proccess_client_thread(void * arg) {
             }
         }
         pthread_mutex_unlock(&mutex_var);
+        // LOGICA DE ENTRADA A REGION CRITICA ----------------------------------
 
         // REGION CRITICA ------------------------------------------------
         clock_gettime(CLOCK_MONOTONIC, &start);
@@ -259,9 +272,9 @@ void * proccess_client_thread(void * arg) {
         clock_gettime(CLOCK_MONOTONIC, &end);
         is_writing = 1;
         counter++;
-
+        // TODO: create function to do this as this is secuential
         if ((counter_fd = open(server_counter_file, O_TRUNC | O_WRONLY)) < 0) {
-            ERROR("Unable to open counter output file, creating new one.");
+            INFO("Unable to open counter output file, creating new one.");
             counter_fd = open(server_counter_file, O_CREAT | O_WRONLY, 0777);
         }
         sprintf(buff, "%d", counter);
@@ -289,18 +302,20 @@ void * proccess_client_thread(void * arg) {
         } else {
             pthread_mutex_unlock(&mutex_writers);
         }
-        // REGION CRITICA ------------------------------------------------
+        // REGION CRITICA ------------------------------------------------------
 
+        // LOGICA DE SALIDA DE REGION CRITICA ----------------------------------
         pthread_mutex_lock(&mutex_var);
         queued_writers--;
         if (queued_writers == 0) {
             pthread_cond_broadcast(&writers_prio);
         }
         pthread_mutex_unlock(&mutex_var);
+        // LOGICA DE SALIDA DE REGION CRITICA ----------------------------------
         break;
     case READ:
         clock_gettime(CLOCK_MONOTONIC, &start);
-        // LOGICA DE ENTRADA A REGION CRITICA -----------------------------
+        // LOGICA DE ENTRADA A REGION CRITICA ----------------------------------
         pthread_mutex_lock(&mutex_readers);
         queued_readers++;
         if (priority_server == WRITER) {
@@ -312,8 +327,8 @@ void * proccess_client_thread(void * arg) {
             pthread_cond_wait(&writing, &mutex_readers);
         }
         pthread_mutex_unlock(&mutex_readers);
-        // LOGICA DE ENTRADA A REGION CRITICA -----------------------------
-        // REGION CRITICA ------------------------------------------------
+        // LOGICA DE ENTRADA A REGION CRITICA ----------------------------------
+        // REGION CRITICA ------------------------------------------------------
         clock_gettime(CLOCK_MONOTONIC, &end);
 
         printf("[%ld.%.6ld][LECTOR #%d] lee contador con valor %d\n",
@@ -326,8 +341,9 @@ void * proccess_client_thread(void * arg) {
         // Sleep between 150 and 75 miliseconds
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
-        // REGION CRITICA ------------------------------------------------
+        // REGION CRITICA ------------------------------------------------------
 
+        // LOGICA DE SALIDA DE REGION CRITICA ----------------------------------
         pthread_mutex_lock(&mutex_readers);
         queued_readers--;
         if (queued_readers == 0) {
@@ -337,41 +353,47 @@ void * proccess_client_thread(void * arg) {
             }
         }
         pthread_mutex_unlock(&mutex_readers);
+        // LOGICA DE SALIDA DE REGION CRITICA ----------------------------------
         break;
     }
 
+    // Send respnse to client --------------------------------------------------
     if (resp.latency_time < 0) {
+        // If 1.9 and 2.1 get 0.2
         resp.latency_time = NS_TO_S - resp.latency_time;
     }
 
     if (send(thread_info->sockfd, &resp, sizeof(resp), MSG_WAITALL) < 0) {
         ERROR("Failed to send");
     }
-
+    // Free all memory and close sockets ---------------------------------------
     close(thread_info->sockfd);
     free(thread_info);
+    // Allow another thread in -------------------------------------------------
     sem_post(&sem);
     pthread_exit(NULL);
 }
 
 int proccess_client() {
     int sockfd; 
-    // struct sockaddr * addr = server_addr;
     struct thread_info * thread_info = malloc(sizeof(struct thread_info));
+
     if (thread_info == NULL) err(EXIT_FAILURE, "failed to alloc memory");
     memset(thread_info, 0, sizeof(struct thread_info));
 
+    // Accept connection -------------------------------------------------------
     if ((sockfd = accept(server_sockfd, server_addr, &server_len)) < 0) {
         ERROR("failed to accept socket");
         return 0;
     }
 
-    // 1. Accept connection
     thread_info->sockfd = sockfd;
+    // Create only 600 threads -------------------------------------------------
     sem_wait(&sem);
-    pthread_create(&thread_info->thread, NULL, proccess_client_thread, thread_info);
-    pthread_detach(thread_info->thread);
-
+    pthread_create(&thread_info->thread, NULL, proccess_client_thread,
+                   thread_info);
+    pthread_detach(thread_info->thread); // To free thread memory after finish
+    // -------------------------------------------------------------------------
     return 1;
 }
 // -----------------------------------------------------------------------------
