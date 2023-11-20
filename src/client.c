@@ -21,10 +21,6 @@ typedef struct args {
 
 Args check_args(int argc, char *const *argv);
 
-// Thread specific functions
-enum modes execution_mode;
-void * thread_function(void *arg);
-
 void usage() {
     fprintf(stderr, "usage: ./client --ip IP --port PORT --mode writer/reader --threads N_THREADS\n");
     exit(EXIT_FAILURE);
@@ -35,8 +31,6 @@ int main(int argc, char *const *argv) {
     Args arguments = check_args(argc, argv);
     pthread_t threads [arguments->threads];
     int thread_ids[arguments->threads];
-    
-    execution_mode = arguments->mode;
 
     load_config_client(arguments->ip, arguments->port, arguments->mode);
 
@@ -123,27 +117,3 @@ Args check_args(int argc, char *const *argv) {
     }
     return arguments;
 }
-
-// void * thread_function(void *arg) {
-//     int id = *(int *) arg;
-//     struct response * resp;
-
-//     switch (execution_mode) {
-//     case READER:
-//         resp = reader(id); // Returns X and Y values
-//         if (resp == NULL) pthread_exit(NULL);
-//         printf("[Cliente #%d] Lector, contador=%d, tiempo=%ld ns.\n", id,
-//                resp->counter, resp->latency_time);
-//         break;
-//     case WRITER:
-//         pthread_mutex_lock(&mutex_a);
-//         resp = writer(id); // Returns X and Y values
-//         pthread_mutex_unlock(&mutex_a);
-//         if (resp == NULL) pthread_exit(NULL);
-//         printf("[Cliente #%d] Escritor, contador=%d, tiempo=%ld ns.\n", id,
-//                resp->counter, resp->latency_time);
-//         break;
-//     }
-//     free(resp);
-//     pthread_exit(NULL);
-// }
