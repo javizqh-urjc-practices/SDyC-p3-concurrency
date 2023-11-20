@@ -14,7 +14,7 @@ DEPS =
 all: stub.o server client
 
 server: server.c 
-	gcc -g -Wall -o serverMi server.c -lpthread stub.o
+	gcc -g -Wall -o server server.c -lpthread stub.o
 
 client: client.c 
 	gcc -g -Wall -o client client.c -lpthread stub.o
