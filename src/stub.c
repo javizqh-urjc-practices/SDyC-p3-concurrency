@@ -264,7 +264,7 @@ void * proccess_client_thread(void * arg) {
             ERROR("Unable to open counter output file");
         } else {
             sprintf(buff, "%d", counter);
-            if (write(counter_fd, buff, sizeof(20)) < 0) {
+            if (write(counter_fd, buff, strlen(buff)) < 0) {
                 ERROR("Unable to write counter file");
             }
             close(counter_fd);
