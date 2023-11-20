@@ -30,10 +30,13 @@ void usage() {
 int main(int argc, char *const *argv) {
     Args arguments = check_args(argc, argv);
 
-    load_config_server(arguments->port, arguments->priority, MAX_THREADS, 
-                       "server_output.txt");
+    if (!load_config_server(arguments->port, arguments->priority, MAX_THREADS, 
+                       "server_output.txt")) {
+        free(arguments);
+        exit(EXIT_FAILURE);                  
+    }
 
-    // Launch n threads with a maximum amount of 400
+    // Launch n threads with a maximum amount of 600
     while (1) {
         proccess_client();
     }

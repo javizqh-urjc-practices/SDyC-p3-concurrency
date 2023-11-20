@@ -119,10 +119,9 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     pthread_cond_init(&readers_prio, NULL);
     pthread_cond_init(&writers_prio, NULL);
 
-    if ((counter_fd = open(counter_file, O_RDWR)) < 0) {
-        ERROR("Unable to open counter output file");
-        free(buff);
-        return 0;
+    if ((counter_fd = open(counter_file, O_RDONLY)) < 0) {
+        ERROR("Unable to open counter output file, creating new one.");
+        counter_fd = open(counter_file, O_CREAT | O_RDONLY, 0777);
     }
 
     if (read(counter_fd, buff, sizeof(20)) < 0) {
@@ -260,15 +259,17 @@ void * proccess_client_thread(void * arg) {
         clock_gettime(CLOCK_MONOTONIC, &end);
         is_writing = 1;
         counter++;
+
         if ((counter_fd = open(server_counter_file, O_TRUNC | O_WRONLY)) < 0) {
-            ERROR("Unable to open counter output file");
-        } else {
-            sprintf(buff, "%d", counter);
-            if (write(counter_fd, buff, strlen(buff)) < 0) {
-                ERROR("Unable to write counter file");
-            }
-            close(counter_fd);
+            ERROR("Unable to open counter output file, creating new one.");
+            counter_fd = open(server_counter_file, O_CREAT | O_WRONLY, 0777);
         }
+        sprintf(buff, "%d", counter);
+        if (write(counter_fd, buff, strlen(buff)) < 0) {
+            ERROR("Unable to write counter file");
+        }
+        close(counter_fd);
+
         printf("[%ld.%.6ld][ESCRITOR #%d] modifica contador con valor %d\n",
                 current_time.tv_sec, current_time.tv_nsec / NS_TO_MICROS,
                 req.id, counter);
