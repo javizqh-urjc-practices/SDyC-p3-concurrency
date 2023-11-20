@@ -244,7 +244,6 @@ void * proccess_client_thread(void * arg) {
     switch (req.action)
     {
     case WRITE:
-        clock_gettime(CLOCK_MONOTONIC, &start);
         pthread_mutex_lock(&mutex_var);
         queued_writers++;
         if (priority_server == READER) {
@@ -256,6 +255,7 @@ void * proccess_client_thread(void * arg) {
         pthread_mutex_unlock(&mutex_var);
 
         // REGION CRITICA ------------------------------------------------
+        clock_gettime(CLOCK_MONOTONIC, &start);
         pthread_mutex_lock(&mutex_writers);
         clock_gettime(CLOCK_MONOTONIC, &end);
         is_writing = 1;
@@ -347,9 +347,9 @@ void * proccess_client_thread(void * arg) {
         ERROR("Failed to send");
     }
 
-    sem_post(&sem);
     close(thread_info->sockfd);
     free(thread_info);
+    sem_post(&sem);
     pthread_exit(NULL);
 }
 
