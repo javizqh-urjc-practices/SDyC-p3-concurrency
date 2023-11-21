@@ -4,13 +4,10 @@
 #include <string.h>
 #include <getopt.h>
 #include <err.h>
-#include <pthread.h>
 
 #include "stub.h"
 
 #define N_ARGS 8
-
-pthread_mutex_t mutex_a;
 
 typedef struct args {
     char ip [MAX_IP_SIZE];
@@ -22,14 +19,15 @@ typedef struct args {
 Args check_args(int argc, char *const *argv);
 
 void usage() {
-    fprintf(stderr, "usage: ./client --ip IP --port PORT --mode writer/reader --threads N_THREADS\n");
+    fprintf(stderr, "usage: ./client --ip IP --port PORT --mode writer/reader \
+--threads N_THREADS\n");
+
     exit(EXIT_FAILURE);
 }
 
 int main(int argc, char *const *argv) {
-    
     Args arguments = check_args(argc, argv);
-    pthread_t threads [arguments->threads];
+    pthread_t threads[arguments->threads];
     int thread_ids[arguments->threads];
 
     load_config_client(arguments->ip, arguments->port, arguments->mode);

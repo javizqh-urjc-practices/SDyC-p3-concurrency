@@ -272,7 +272,7 @@ void * proccess_client_thread(void * arg) {
         clock_gettime(CLOCK_MONOTONIC, &end);
         is_writing = 1;
         counter++;
-        // TODO: create function to do this as this is secuential
+        
         if ((counter_fd = open(server_counter_file, O_TRUNC | O_WRONLY)) < 0) {
             INFO("Unable to open counter output file, creating new one.");
             counter_fd = open(server_counter_file, O_CREAT | O_WRONLY, 0777);

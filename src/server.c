@@ -4,16 +4,12 @@
 #include <string.h>
 #include <getopt.h>
 #include <err.h>
-#include <pthread.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 
 #include "stub.h"
 
 #define N_ARGS 4
-#define MAX_PRIORITY_SIZE 16
 #define MAX_THREADS 600
+#define COUNTER_FILE "server_output.txt"
 
 typedef struct args {
     int port;
@@ -31,7 +27,7 @@ int main(int argc, char *const *argv) {
     Args arguments = check_args(argc, argv);
 
     if (!load_config_server(arguments->port, arguments->priority, MAX_THREADS, 
-                       "server_output.txt")) {
+                            COUNTER_FILE)) {
         free(arguments);
         exit(EXIT_FAILURE);                  
     }
