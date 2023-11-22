@@ -8,6 +8,7 @@
 #include "stub.h"
 
 #define N_ARGS 8
+#define N_ARGS_OPT 10
 
 typedef struct args {
     char ip [MAX_IP_SIZE];

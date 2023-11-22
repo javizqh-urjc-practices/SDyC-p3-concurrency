@@ -30,6 +30,8 @@ int client_action;
 char client_ip[MAX_IP_SIZE];
 // ------------------------ Global variables for server ------------------------
 int priority_server;
+int server_ratio;
+int active_ratio;
 int server_sockfd;
 struct sockaddr *server_addr;
 socklen_t server_len;
@@ -47,6 +49,7 @@ pthread_mutex_t mutex_writers;
 pthread_cond_t writing;
 pthread_cond_t readers_prio;
 pthread_cond_t writers_prio;
+pthread_cond_t readers_ratio;
 int counter = 0;
 int is_writing = 0;
 int queued_writers = 0;
@@ -64,7 +67,7 @@ int load_config_client(char ip[MAX_IP_SIZE], int port, int action) {
 }
 
 int load_config_server(int port, enum modes priority, int max_n_threads,
-                       char * counter_file) {
+                       char * counter_file, int ratio) {
     const int enable = 1;
     struct sockaddr_in servaddr;
     int sockfd, counter_fd;
@@ -90,7 +93,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (sockfd < 0) {
-        fprintf(stderr, "Socket failed\n");
+        ERROR("Socket failed");
         return 0;
     }
 
@@ -121,6 +124,7 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     pthread_cond_init(&writing, NULL);
     pthread_cond_init(&readers_prio, NULL);
     pthread_cond_init(&writers_prio, NULL);
+    pthread_cond_init(&readers_ratio, NULL);
 
     // Read counter file -------------------------------------------------------
     if ((counter_fd = open(counter_file, O_RDONLY)) < 0) {
@@ -139,6 +143,8 @@ int load_config_server(int port, enum modes priority, int max_n_threads,
     close(counter_fd);
     // Set global variables ----------------------------------------------------
     priority_server = priority;
+    server_ratio = ratio;
+    active_ratio = server_ratio;
     server_sockfd = sockfd;
     server_counter_file = counter_file;
     memcpy(addr, (struct sockaddr *) &servaddr, sizeof(struct sockaddr));
@@ -159,6 +165,7 @@ int close_config_server() {
     pthread_cond_destroy(&writing);
     pthread_cond_destroy(&readers_prio);
     pthread_cond_destroy(&writers_prio);
+    pthread_cond_destroy(&readers_ratio);
     // Free global variables ---------------------------------------------------
     free(server_addr);
     return 1;
@@ -259,7 +266,7 @@ void * proccess_client_thread(void * arg) {
         queued_writers++;
         if (priority_server == READER) {
             // Check if we do not have readers
-            while (queued_readers > 0) {
+            if (queued_readers > 0) {
                 pthread_cond_wait(&readers_prio, &mutex_var);
             }
         }
@@ -293,14 +300,33 @@ void * proccess_client_thread(void * arg) {
         // Sleep between 150 and 75 miliseconds
         usleep((rand() % (MAX_MS_SLEEP_INTERVAL - MIN_MS_SLEEP_INTERVAL)
             + MIN_MS_SLEEP_INTERVAL) * MICROS_TO_MS);
+        
         is_writing = 0;
+
+        pthread_cond_broadcast(&writing);
         if (priority_server == READER) {
-            pthread_cond_broadcast(&writing);
             if (queued_readers == 0) {
                 pthread_mutex_unlock(&mutex_writers);
+            } else if (queued_readers > 0 && server_ratio > 0) {
+                // Readers ratio
+                for (int i = 0; i <= server_ratio - 1; i++) {
+                    pthread_cond_signal(&readers_ratio);
+                }
             }
         } else {
-            pthread_mutex_unlock(&mutex_writers);
+            // Exam Part -------------------------------------------------------
+            if (queued_readers > 0 && server_ratio > 0) {
+                // Writers ratio
+                active_ratio--;
+                if (active_ratio <= 0) {
+                    active_ratio = server_ratio; // Reset ratio
+                    pthread_cond_signal(&writers_prio);
+                } else {
+                    pthread_mutex_unlock(&mutex_writers);
+                }
+            } else {
+                pthread_mutex_unlock(&mutex_writers);
+            }
         }
         // REGION CRITICA ------------------------------------------------------
 
@@ -319,15 +345,24 @@ void * proccess_client_thread(void * arg) {
         pthread_mutex_lock(&mutex_readers);
         queued_readers++;
         if (priority_server == WRITER) {
-            while (queued_writers > 0) {
+            if (queued_writers > 0) {
                 pthread_cond_wait(&writers_prio, &mutex_readers);
             }
         }
+        // Exam Part -----------------------------------------------------------
+        // Check also if there are writers and ratio is positive
+        if (priority_server == READER && queued_writers > 0 && 
+            server_ratio > 0) {
+            // Readers ratio
+            pthread_cond_wait(&readers_ratio, &mutex_readers);
+        }
+        // ---------------------------------------------------------------------
         while (is_writing > 0) {
             pthread_cond_wait(&writing, &mutex_readers);
         }
         pthread_mutex_unlock(&mutex_readers);
         // LOGICA DE ENTRADA A REGION CRITICA ----------------------------------
+
         // REGION CRITICA ------------------------------------------------------
         clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -350,6 +385,22 @@ void * proccess_client_thread(void * arg) {
             pthread_cond_broadcast(&readers_prio);
             if (priority_server == READER) {
                 pthread_mutex_unlock(&mutex_writers);
+            }
+        }
+        // Exam Part -----------------------------------------------------------
+        // Check also if there are witers and ratio is positive
+        if (queued_writers > 0 && server_ratio > 0) {
+            if (priority_server == WRITER) {
+                // Writers ratio
+                pthread_mutex_unlock(&mutex_writers);
+            } else {
+                // Readers ratio
+                active_ratio--;
+                if (active_ratio <= 0) {
+                    active_ratio = server_ratio; // Reset ratio
+                    pthread_mutex_unlock(&mutex_writers);
+                    pthread_cond_signal(&readers_prio);
+                }
             }
         }
         pthread_mutex_unlock(&mutex_readers);
